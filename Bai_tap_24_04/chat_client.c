@@ -6,10 +6,12 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <sys/select.h>
 
 int main(int argc, char* argv[])
 {
     // Check enough arguments
+    // Arguments contains ./run_file_name + ip address + port
     if (argc != 3)
     {
         printf("Missing arguments\n");
@@ -22,7 +24,7 @@ int main(int argc, char* argv[])
     {
         perror("Create socket failed: ");
         exit(1);
-    } 
+    }
 
     // Connect to server
     struct sockaddr_in addr;
@@ -36,36 +38,45 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    // Receive hello message from server
     char buff[512];
-    char *message = NULL;
-    int size = 0;
+    fd_set fdread;
+    int maxFd, ret;
+
     while (1)
     {
-        int ret = recv(clientSocket, buff, sizeof(buff), 0);
+        FD_ZERO(&fdread);
+        FD_SET(STDIN_FILENO, &fdread);
+        FD_SET(clientSocket, &fdread);
+        maxFd = clientSocket + 1;   // STDIN_FILENO is 0
+
+        ret = select(maxFd + 1, &fdread, NULL, NULL, NULL);
+
         if (ret <= 0)
         {
-            printf("Receive message failed\n");
+            printf("Select Failed\n");
             exit(1);
         }
-        message = realloc(message, size + ret);
-        memcpy(message + size, buff, ret);
-        size += ret;
-        if (strstr(buff, "\r\n\r\n") != NULL) break;
-    }
-    printf("%s\n", message);
-    free(message);
 
-    // Send message to server
-    while (1)
-    {
-        printf("Enter string (press enter to escape): ");
-        fgets(buff, sizeof(buff), stdin);
-        if (strncmp(buff, "\n", 4) == 0) break;
-        if (send(clientSocket, buff, strlen(buff), 0) == -1)
+        if (FD_ISSET(STDIN_FILENO, &fdread))
         {
-            printf("Send Error\n");
-            break;
+            fgets(buff, sizeof(buff), stdin);
+            buff[strlen(buff) - 1] = 0;
+
+            // exit signal
+            if (strncmp(buff, "exit", 4) == 0) break;
+            
+            // send message to server
+            send(clientSocket, buff, strlen(buff), 0);
+        }
+
+        if (FD_ISSET(clientSocket, &fdread))
+        {
+            ret = recv(clientSocket, buff, sizeof(buff), 0);            
+            // Disconnected
+            if (ret <= 0) break;
+            
+            buff[ret] = 0;
+            printf("%s\n", buff);
         }
     }
 
