@@ -1,91 +1,98 @@
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <netdb.h>
-#include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
 #include <time.h>
+#include <unistd.h>
 
-typedef struct sinhVien {
-    char mssv[100];
-    char hoTen[100];
-    char ngaySinh[100];
-    float diemTb;
-} SinhVien;
+struct SinhVien {
+   char mssv[9];
+   char hoTen[64];
+   char ngaySinh[11];
+   float diemTrungBinh;
+};
 
 int main(int argc, char *argv[]) {
-    
-    int port = atoi(argv[1]);
-    char *fileName = argv[2];
+   // Check enough arguments
+   if (argc != 3) {
+      printf("Missing arguments\n");
+      exit(1);
+   }
 
+   // Create socket
+   int serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+   if (serverSocket == -1) {
+      perror("Create socket failed: ");
+      exit(1);
+   }
 
-    // Tao socket
-    int listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if(listener == -1) {
-        printf("socket faild!\n");
-        return 1;
-    }
+   // Create struct sockaddr
+   struct sockaddr_in addr;
+   addr.sin_family = AF_INET;
+   addr.sin_addr.s_addr = htonl(INADDR_ANY);
+   ;
+   addr.sin_port = htons(atoi(argv[1]));
 
-    // Khai bao cau truc dia chi server
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(port);
+   // Bind socket to sockaddr
+   if (bind(serverSocket, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+      printf("Binding Failed\n");
+      exit(1);
+   }
 
-    // Gan dia chi voi socket
-    if(bind(listener, (struct sockaddr*)&addr, sizeof(addr))){
-        printf("bind faild\n");
-        return 1;
-    }
+   // Listen
+   if (listen(serverSocket, 5) == -1) {
+      printf("Listening Failed\n");
+      exit(1);
+   }
+   printf("Waiting for client connecting ...\n");
 
-    // Chuyen socket sang trang thai cho ket noi
-    if(listen(listener, 5)) {
-        printf("listen faild\n");
-        return 1;
-    }
+   // Accept connection
+   struct sockaddr_in clientAddr;
+   int clientAddrLength = sizeof(clientAddr);
+   int clientSocket =
+       accept(serverSocket, (struct sockaddr *)&clientAddr, &clientAddrLength);
+   if (clientSocket == -1) {
+      printf("Accept connection failed\n");
+      exit(1);
+   }
+   printf("Client has connected: %s:%d\n", inet_ntoa(clientAddr.sin_addr),
+          ntohs(clientAddr.sin_port));
 
-    printf("Waiting for a new client ...\n\n");
+   // Write client's message to file
+   char *filename = argv[2];
+   FILE *f = fopen(filename, "a");
+   if (f == NULL) {
+      printf("Open file failed\n");
+      exit(1);
+   }
 
+   int ret;
+   time_t t;
+   t = time(NULL);
+   struct tm tm = *localtime(&t);
+   char buff[512];
+   while (1) {
+      struct SinhVien sv;
+      ret = recv(clientSocket, &sv, sizeof(sv), 0);
+      if (ret <= 0) break;
 
-    struct sockaddr_in clientAddr;
-    int clientAddrLen = sizeof(clientAddr);
-    
-    while(1) {
-        // Chap nhan ket noi
-        int client = accept(listener, (struct sockaddr *)&clientAddr, &clientAddrLen);
-        printf("Client IP: %s:%d\n", inet_ntoa(clientAddr.sin_addr),ntohs(clientAddr.sin_port));
-        char *ip = inet_ntoa(clientAddr.sin_addr);
+      sprintf(buff, "%s:%d %d-%d-%d %d:%d:%d %s %s %s %.2f\n",
+              inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port),
+              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
+              tm.tm_min, tm.tm_sec, sv.mssv, sv.hoTen, sv.ngaySinh,
+              sv.diemTrungBinh);
 
-    
-        // Nhan du lieu va ghi vao file
-        SinhVien sv;   
+      printf("%s", buff);
+      fwrite(buff, 1, strlen(buff), f);
+   }
+   fclose(f);
 
-        time_t now = time(0);
-        struct tm *local_time = localtime(&now);
-        char time_str[20];
-        strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", local_time);
-
-        int ret = recv(client, &sv, sizeof(sv), 0);
-        if(ret < 0) break;
-
-        printf("MSSV: %s\n", sv.mssv);
-        printf("Họ và tên: %s\n", sv.hoTen);
-        printf("Ngày sinh: %s\n", sv.ngaySinh);
-        printf("Điểm TB: %.2f\n\n", sv.diemTb);
-
-
-        FILE *recv_file = fopen(fileName, "a");
-
-        fprintf(recv_file, "%s %s %s %s %s %.2f\n", 
-            ip, time_str, sv.mssv, sv.hoTen, sv.ngaySinh, sv.diemTb);
-        
-        fclose(recv_file);
-        close(client);
-    }
-
-    close(listener);
-    return 0;
-
+   // Close
+   close(clientSocket);
+   close(serverSocket);
+   printf("Socket closed\n");
+   return 0;
 }

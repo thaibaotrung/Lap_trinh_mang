@@ -1,66 +1,76 @@
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <netdb.h>
-#include <string.h>
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <time.h>
 
-typedef struct sinhVien {
-    char mssv[100];
-    char hoTen[100];
-    char ngaySinh[100];
-    float diemTb;
-} SinhVien;
+struct SinhVien {
+   char mssv[9];
+   char hoTen[64];
+   char ngaySinh[11];
+   float diemTrungBinh;
+};
 
-int main(int argc, char *argv[]) {
-    
-    char *ipAddr = argv[1];
-    int port = atoi(argv[2]);
+int main(int argc, char* argv[]) {
+   // Check enough arguments
+   if (argc != 3) {
+      printf("Missing arguments\n");
+      exit(1);
+   }
 
-    // Tao socket
-    int client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    
-    // Khai bao dia chi server
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr(ipAddr);
-    addr.sin_port = htons(port);
+   // Create socket
+   int clientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+   if (clientSocket == -1) {
+      perror("Create socket failed: ");
+      exit(1);
+   }
 
-    // Ket noi den server
-    int ret = connect(client, (struct sockaddr *)&addr, sizeof(addr));
-    if(ret == -1) {
-        perror("Kết nối thất bại");
-        exit(1);
-    }
+   // Connect to server
+   struct sockaddr_in addr;
+   addr.sin_family = AF_INET;
+   addr.sin_addr.s_addr = inet_addr(argv[1]);
+   addr.sin_port = htons(atoi(argv[2]));
 
+   if (connect(clientSocket, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+      printf("Connecting failed\n");
+      exit(1);
+   }
 
-    // Nhap va gui du lieu
-    SinhVien sv;
-    printf("Nhập dữ liệu: \n");
+   // Send message to server
+   struct SinhVien sv;
+   char tmp[4];
+   while (1) {
+      printf("Nhap mssv: ");
+      scanf("%s", sv.mssv);
 
-    printf("MSSV: ");
-    fgets(sv.mssv, sizeof(sv.mssv), stdin);
-    sv.mssv[strcspn(sv.mssv, "\n")] = '\0';
+      printf("Nhap ho va ten: ");
+      while (getchar() != '\n')
+         ;
+      fgets(sv.hoTen, sizeof(sv.hoTen), stdin);
+      if (sv.hoTen[strlen(sv.hoTen) - 1] == '\n')
+         sv.hoTen[strlen(sv.hoTen) - 1] = 0;
 
-    printf("Họ và tên: ");
-    fgets(sv.hoTen, sizeof(sv.hoTen), stdin);
-    sv.hoTen[strcspn(sv.hoTen, "\n")] = '\0';
+      printf("Nhap ngay sinh: ");
+      scanf("%s", sv.ngaySinh);
 
-    printf("Ngày sinh: ");
-    fgets(sv.ngaySinh, sizeof(sv.ngaySinh), stdin);
-    sv.ngaySinh[strcspn(sv.ngaySinh, "\n")] = '\0';
+      printf("Nhap diem trung binh: ");
+      scanf("%f", &sv.diemTrungBinh);
 
-    printf("Điểm TB: ");
-    scanf("%f", &sv.diemTb);
+      if (send(clientSocket, &sv, sizeof(sv), 0) == -1) {
+         printf("Send Error\n");
+         break;
+      }
 
-    send(client, &sv, sizeof(SinhVien), 0);
+      printf("Ban co muon tiep tuc (yes/no): ");
+      scanf("%s", tmp);
+      if (strncmp(tmp, "no", 2) == 0) break;
+   }
 
-    printf("Đã gửi dữ liệu lên server.\n");
-
-    close(client);
-    return 0;
-    
+   // Close socket
+   close(clientSocket);
+   printf("Socket closed\n");
+   return 0;
 }
